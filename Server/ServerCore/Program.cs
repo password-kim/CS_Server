@@ -4,37 +4,47 @@ using System.Threading.Tasks;
 
 namespace ServerCore
 {
+    // 메모리 배리어
+    // A) 코드 재배치 억제
+    // B) 가시성
+
+    // 1) Full Memory Barrier (ASM MFENCE, C# Thread.MemoryBerrier) : Store/Load 둘다 막는다.
+    // 2) Store Memory Barrier (ASM SFENCE) : Store만 막는다.
+    // 3) Load Memory Barrier (ASM LFENCE) : Load만 막는다.
+
     class Program
     {
-        volatile static bool _stop = false; // volatile을 사용하지 않으면 쓰레드 간 충돌이 일어나서 버그가 발생할 수 있음.
+        static int _answer;
+        static bool _complete;
 
-        static void ThreadMain()
+        static void A()
         {
-            Console.WriteLine("쓰레드 시작!");
-
-            while(_stop == false)
-            {
-                // 누군가가 stop신호를 해주길 기다린다.
-            }
-
-            Console.WriteLine("쓰레드 종료!");
+            _answer = 123;
+            Thread.MemoryBarrier(); // Barrier 1
+            _complete = true;
+            Thread.MemoryBarrier(); // Barrier 2 <= 또 다른 Store를 위한 메모리 배리어.
         }
+
+        static void B()
+        {
+            Thread.MemoryBarrier(); // Barrier 3 <= Load를 위한 메모리 배리어.
+            if (_complete)
+            {
+                Thread.MemoryBarrier(); // Barrier 4 <= 새로 Load를 하기 위한 메모리 배리어.
+                Console.WriteLine(_answer);
+            }
+        }
+        
 
         static void Main(string[] args)
         {
-            Task t = new Task(ThreadMain); // ThreadPool에서 쓰레드를 끌어와서 ThreadMain실행.
-            t.Start();
+            Task t1 = new Task(A);
+            Task t2 = new Task(B);
 
-            Thread.Sleep(1000); // 쓰레드를 1초동안 Sleep시킴.
+            t1.Start();
+            t2.Start();
 
-            _stop = true;
-
-            Console.WriteLine("Stop 호출");
-            Console.WriteLine("종료 대기중");
-
-            t.Wait(); // 쓰레드가 종료될때까지 기다림.
-
-            Console.WriteLine("종료 성공");
+            Task.WaitAll(t1, t2);
         }
     }
 }
